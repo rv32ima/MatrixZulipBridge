@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Optional
 
 from mautrix.errors import MBadState
 from mautrix.types import MessageType
+from mautrix.types.event.state import JoinRestrictionType, JoinRule
+from mautrix.types.event.type import EventType
 
 from matrixzulipbridge.command_parse import CommandParser
 from matrixzulipbridge.direct_room import DirectRoom
@@ -521,6 +523,33 @@ class StreamRoom(DirectRoom):
         self.send_notice(
             f"Member sync is set to {self.member_sync}", forward=args._forward
         )
+
+    async def _flush_event(self, event: dict):
+        if event["type"] == "_join":
+            user_id = event["user_id"]
+            try:
+                join_rules = await self.az.intent.get_state_event(
+                    self.id, EventType.ROOM_JOIN_RULES  # pylint: disable=no-member
+                )
+                if join_rules.join_rule == JoinRule.RESTRICTED:
+                    for allow in join_rules.allow:
+                        if allow.type == JoinRestrictionType.ROOM_MEMBERSHIP:
+                            space_id = allow.room_id
+                            try:
+                                await self.az.intent.invite_user(space_id, user_id)
+                            except Exception:
+                                pass  # already invited or joined
+                            try:
+                                await self.az.intent.user(user_id).ensure_joined(
+                                    space_id, ignore_cache=True
+                                )
+                            except Exception:
+                                logging.warning(
+                                    f"Could not add {user_id} to space {space_id} before joining room"
+                                )
+            except Exception:
+                pass  # room has no join rules or other error
+        await super()._flush_event(event)
 
     def _add_puppet(self, zulip_user: dict):
         mx_user_id = self.serv.get_mxid_from_zulip_user_id(

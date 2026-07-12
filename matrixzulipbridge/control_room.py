@@ -57,7 +57,7 @@ class ControlRoom(Room):
         self.commands.register(cmd, self.cmd_personalroom)
 
         cmd = CommandParser(
-            prog="JOIN",
+            prog="JOINROOM",
             description="accept a pending invite and join a Matrix room (e.g. a space)",
         )
         cmd.add_argument("room_id", help="Matrix room ID to join")

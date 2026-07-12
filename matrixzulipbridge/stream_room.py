@@ -65,6 +65,7 @@ class StreamRoom(DirectRoom):
 
         # for migration the class default is full
         self.member_sync = "full"
+        self.default_topic = "general"
 
         cmd = CommandParser(
             prog="SYNC",
@@ -146,6 +147,13 @@ class StreamRoom(DirectRoom):
         )
         cmd.add_argument("text", nargs="*", help="topic text if setting")
         self.commands.register(cmd, self.cmd_topic)
+
+        cmd = CommandParser(
+            prog="DEFAULTTOPIC",
+            description="show or set the Zulip topic used for Matrix messages not in a thread",
+        )
+        cmd.add_argument("topic", nargs="?", help="topic name to set (omit to show current)")
+        self.commands.register(cmd, self.cmd_defaulttopic)
 
         self.mx_register("m.room.topic", self._on_mx_room_topic)
 
@@ -237,6 +245,9 @@ class StreamRoom(DirectRoom):
         if "topic_sync" in config:
             self.topic_sync = config["topic_sync"]
 
+        if "default_topic" in config:
+            self.default_topic = config["default_topic"]
+
     def to_config(self) -> dict:
         return {
             **(super().to_config()),
@@ -246,6 +257,7 @@ class StreamRoom(DirectRoom):
             "use_displaynames": self.use_displaynames,
             "allow_notice": self.allow_notice,
             "topic_sync": self.topic_sync,
+            "default_topic": self.default_topic,
         }
 
     async def create_mx(self, name: str):
@@ -344,22 +356,18 @@ class StreamRoom(DirectRoom):
 
         # Get topic (Matrix thread)
         thread_id = event.content.get_thread_parent()
-        # Ignore messages outside a thread
         if thread_id is None:
-            return
-
-        thread_event = await self.az.intent.get_event(self.id, thread_id)
-        topic = thread_event.content.body
-
-        # Save last thread event for old clients
-        self.thread_last_message[thread_id] = event.event_id
-
-        if thread_id in self.threads.inv:
-            topic = self.threads.inv[thread_id]
+            topic = self.default_topic
         else:
-            thread_event = await self.az.intent.get_event(self.id, thread_id)
-            topic = thread_event.content.body
-            self.threads[topic] = thread_id
+            # Save last thread event for old clients
+            self.thread_last_message[thread_id] = event.event_id
+
+            if thread_id in self.threads.inv:
+                topic = self.threads.inv[thread_id]
+            else:
+                thread_event = await self.az.intent.get_event(self.id, thread_id)
+                topic = thread_event.content.body
+                self.threads[topic] = thread_id
 
         # keep track of the last message
         self.last_messages[event.sender] = event
@@ -476,6 +484,12 @@ class StreamRoom(DirectRoom):
         self.send_notice(
             f"Notice relay is {'enabled' if self.allow_notice else 'disabled'}"
         )
+
+    async def cmd_defaulttopic(self, args) -> None:
+        if args.topic is not None:
+            self.default_topic = args.topic
+            await self.save()
+        self.send_notice(f"Default topic for non-threaded messages is '{self.default_topic}'")
 
     async def cmd_topic(self, args) -> None:
         if args.sync is None:

@@ -56,6 +56,13 @@ class ControlRoom(Room):
         cmd.add_argument("organization", nargs="?", help="organization name")
         self.commands.register(cmd, self.cmd_personalroom)
 
+        cmd = CommandParser(
+            prog="JOIN",
+            description="accept a pending invite and join a Matrix room (e.g. a space)",
+        )
+        cmd.add_argument("room_id", help="Matrix room ID to join")
+        self.commands.register(cmd, self.cmd_join)
+
         if self.serv.is_admin(self.user_id):
             cmd = CommandParser(
                 prog="ORGANIZATIONS", description="list available Zulip organizations"
@@ -171,13 +178,6 @@ class ControlRoom(Room):
 
             cmd = CommandParser(prog="VERSION", description="show bridge version")
             self.commands.register(cmd, self.cmd_version)
-
-            cmd = CommandParser(
-                prog="JOIN",
-                description="accept a pending invite and join a Matrix room (e.g. a space)",
-            )
-            cmd.add_argument("room_id", help="Matrix room ID to join")
-            self.commands.register(cmd, self.cmd_join)
 
         self.mx_register("m.room.message", self.on_mx_message)
 

@@ -798,6 +798,34 @@ class BridgeAppService(AppService):
                 if unsafe_mode:
                     await self.leave_room(room_id, joined.keys())
 
+        logging.info("Checking for pending invites...")
+        try:
+            sync_resp = await self.az.intent.sync(timeout=0)
+            invited_rooms = sync_resp.get("rooms", {}).get("invite", {})
+            for room_id, room_data in invited_rooms.items():
+                if room_id in self._rooms:
+                    continue
+                invite_events = room_data.get("invite_state", {}).get("events", [])
+                sender = None
+                for ev in invite_events:
+                    if (
+                        ev.get("type") == "m.room.member"
+                        and ev.get("state_key") == self.user_id
+                        and ev.get("content", {}).get("membership") == "invite"
+                    ):
+                        sender = ev.get("sender")
+                        break
+                if sender and self.is_user(sender):
+                    logging.info(f"Accepting pending invite to {room_id} from {sender}")
+                    try:
+                        await self.az.intent.join_room(room_id)
+                    except Exception:
+                        logging.exception(f"Failed to join {room_id} from pending invite")
+                else:
+                    logging.debug(f"Ignoring pending invite to {room_id} (sender={sender})")
+        except Exception:
+            logging.exception("Failed to process pending invites")
+
         logging.info("All valid rooms initialized, connecting organization rooms...")
 
         wait = 1

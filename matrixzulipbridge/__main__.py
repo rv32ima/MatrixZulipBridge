@@ -291,7 +291,16 @@ class BridgeAppService(AppService):
                 logging.info(f"Got an invite from {event.sender}")
 
             if not event.content.is_direct:
-                logging.debug("Got an invite to non-direct room, ignoring")
+                if event.room_id in self._rooms:
+                    logging.debug("Got an invite to room we're already in, ignoring")
+                    return
+                logging.info(
+                    f"Whitelisted user {event.sender} invited us to a non-direct room, joining."
+                )
+                try:
+                    await self.az.intent.join_room(event.room_id)
+                except Exception:
+                    logging.exception("Failed to join room from invite.")
                 return
 
             # only respond to invites unknown new rooms

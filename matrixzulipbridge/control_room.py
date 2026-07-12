@@ -172,6 +172,13 @@ class ControlRoom(Room):
             cmd = CommandParser(prog="VERSION", description="show bridge version")
             self.commands.register(cmd, self.cmd_version)
 
+            cmd = CommandParser(
+                prog="JOIN",
+                description="accept a pending invite and join a Matrix room (e.g. a space)",
+            )
+            cmd.add_argument("room_id", help="Matrix room ID to join")
+            self.commands.register(cmd, self.cmd_join)
+
         self.mx_register("m.room.message", self.on_mx_message)
 
     def is_valid(self) -> bool:
@@ -518,6 +525,13 @@ class ControlRoom(Room):
 
     async def cmd_version(self, args):
         self.send_notice(f"zulipbridge v{__version__}")
+
+    async def cmd_join(self, args):
+        try:
+            await self.serv.az.intent.join_room(args.room_id)
+            self.send_notice(f"Joined {args.room_id}")
+        except Exception as e:
+            self.send_notice(f"Failed to join {args.room_id}: {e}")
 
     async def cmd_personalroom(self, args) -> None:
         organization = None

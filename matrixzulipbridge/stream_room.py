@@ -65,7 +65,7 @@ class StreamRoom(DirectRoom):
 
         # for migration the class default is full
         self.member_sync = "full"
-        self.default_topic = "general"
+        self.default_topic = "general chat"
 
         cmd = CommandParser(
             prog="SYNC",

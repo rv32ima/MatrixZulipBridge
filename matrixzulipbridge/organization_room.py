@@ -536,7 +536,7 @@ class OrganizationRoom(Room):
         for r in self.rooms.values():
             if not isinstance(r, StreamRoom):
                 continue
-            if r.name.lower() == target:
+            if r.name.lower() == target or r.id == args.target:
                 room = r
 
         if not room:

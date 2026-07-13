@@ -176,6 +176,16 @@ class ControlRoom(Room):
             )
             self.commands.register(cmd, self.cmd_media_path)
 
+            cmd = CommandParser(
+                prog="PROXYURL",
+                description="configure bridge media proxy URL (enables secure authenticated media)",
+            )
+            cmd.add_argument("url", nargs="?", help="bridge public URL (e.g. https://bridge.example.com)")
+            cmd.add_argument(
+                "--remove", help="disable media proxy", action="store_true"
+            )
+            self.commands.register(cmd, self.cmd_proxy_url)
+
             cmd = CommandParser(prog="VERSION", description="show bridge version")
             self.commands.register(cmd, self.cmd_version)
 
@@ -457,6 +467,28 @@ class ControlRoom(Room):
             f"Media Path override is set to {self.serv.config['media_path']}"
         )
         self.send_notice(f"Current active media path: {self.serv.media_path}")
+
+    async def cmd_proxy_url(self, args):
+        if args.remove:
+            self.serv.config["proxy_url"] = None
+            await self.serv.save()
+            self.serv.proxy_url = None
+        elif args.url:
+            parsed = urlparse(args.url)
+            if (
+                parsed.scheme in ["http", "https"]
+                and not parsed.params
+                and not parsed.query
+                and not parsed.fragment
+            ):
+                self.serv.config["proxy_url"] = args.url
+                await self.serv.save()
+                self.serv.proxy_url = args.url
+            else:
+                self.send_notice(f"Invalid proxy URL format: {args.url}")
+                return
+
+        self.send_notice(f"Current proxy URL: {self.serv.proxy_url}")
 
     async def cmd_open(self, args):
         organizations = self.organizations()

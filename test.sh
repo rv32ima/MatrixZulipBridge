@@ -1,0 +1,13 @@
+curl 'https://matrix.devhack.net/_matrix/client/v1/media/preview_url?url=https%3A%2F%2Fpsychoboost.tail09d5b.ts.net%2Fmedia%2Fzulip%2Fzulip.devhack.net%2Fthumbnail%2F2%2FsUUkfmr5SUWV4HMoV3lrKcDT%2Fdevhack-two-lines.png%2F840x560.webp' \
+  -H 'accept: application/json' \
+  -H 'accept-language: en-US,en;q=0.9' \
+  -H 'authorization: Bearer mct_MBLiwHtraOS5pBg1EfGln1wOM96aQ4_rQNdW1' \
+  -H 'origin: https://app.cinny.in' \
+  -H 'priority: i' \
+  -H 'sec-ch-ua: "Not;A=Brand";v="8", "Chromium";v="150"' \
+  -H 'sec-ch-ua-mobile: ?1' \
+  -H 'sec-ch-ua-platform: "Android"' \
+  -H 'sec-fetch-dest: empty' \
+  -H 'sec-fetch-mode: cors' \
+  -H 'sec-fetch-site: cross-site' \
+  -H 'user-agent: Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Mobile Safari/537.36'

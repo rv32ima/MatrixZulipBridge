@@ -21,10 +21,14 @@
 # [This file includes modifications made by Emma Meijere]
 #
 #
+import asyncio
 import logging
 import re
+import urllib.parse
 from typing import TYPE_CHECKING, Optional
 from urllib.parse import urljoin
+
+from matrixzulipbridge.media_proxy import sign_resource
 
 import emoji
 from bs4 import BeautifulSoup
@@ -295,12 +299,52 @@ class ZulipEventHandler:
     def _process_message_content(self, html: str, room: "DirectRoom"):
         reply_event_id = None
 
-        # Replace Zulip file upload relative URLs with absolute
         soup = BeautifulSoup(html, "html.parser")
+
+        proxy_url = self.organization.serv.proxy_url
+        zulip_host = (
+            urllib.parse.urlparse(self.organization.site).netloc
+            if self.organization.site
+            else None
+        )
+
+        secret = self.organization.serv.registration["as_token"]
+
+        def _rewrite_url(url: str) -> str:
+            if url and url.startswith("/user_uploads/") and proxy_url and zulip_host:
+                path = url[len("/user_uploads/"):]
+                resource = f"zulip/{zulip_host}/{path}"
+                sig = sign_resource(secret, resource)
+                return f"{proxy_url}/media/{resource}?sig={sig}"
+            return urljoin(self.organization.server["realm_uri"], url)
+
+        # Rewrite inline image divs: proxy the original file href (user_uploads,
+        # works with API key BasicAuth) and use it for the img src too — the
+        # thumbnail endpoint is a web endpoint that only accepts session auth.
+        for div in soup.find_all("div", class_="message_inline_image"):
+            a_tag = div.find("a")
+            img_tag = div.find("img")
+            if img_tag and a_tag:
+                href = a_tag.get("href", "")
+                proxied = _rewrite_url(href)
+                a_tag["href"] = proxied
+                img_tag["src"] = proxied
+                div.replace_with(a_tag)
+            elif img_tag:
+                img_tag["src"] = _rewrite_url(img_tag.get("src", ""))
+                div.replace_with(img_tag)
+            else:
+                div.decompose()
+
         for a_tag in soup.find_all("a"):
             href = a_tag.get("href")
-            absolute_url = urljoin(self.organization.server["realm_uri"], href)
-            a_tag["href"] = absolute_url
+            if href:
+                a_tag["href"] = _rewrite_url(href)
+
+        for img_tag in soup.find_all("img"):
+            src = img_tag.get("src")
+            if src:
+                img_tag["src"] = _rewrite_url(src)
 
         # Check if message contains a reply
         first_text = soup.find("p")
@@ -360,5 +404,5 @@ class ZulipEventHandler:
                 first_text.replace_with(mx_reply)
 
         formatted_message = emoji.emojize(soup.decode(), language="alias")
-        message = markdownify(formatted_message).rstrip()
+        message = markdownify(formatted_message, strip=["img"]).rstrip()
         return message, formatted_message, reply_event_id

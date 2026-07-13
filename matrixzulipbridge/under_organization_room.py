@@ -23,6 +23,7 @@
 #
 import asyncio
 import logging
+import urllib.parse
 from typing import TYPE_CHECKING, Optional
 from urllib.parse import quote, urlparse
 
@@ -106,6 +107,52 @@ class UnderOrganizationRoom(Room):
         if self.organization.space:
             await self.organization.space.attach(self.id)
 
+    async def _upload_matrix_media_to_zulip(self, mxc_url: str, filename: str, info) -> str | None:
+        import io
+
+        class _NamedBytesIO(io.BytesIO):
+            def __init__(self, name: str, data: bytes) -> None:
+                super().__init__(data)
+                self.name = name
+
+        if not self.organization.zulip:
+            return None
+        mxc = urllib.parse.urlparse(mxc_url)
+        for path in [
+            f"/_matrix/client/v1/media/download/{mxc.netloc}{mxc.path}",
+            f"/_matrix/media/v3/download/{mxc.netloc}{mxc.path}",
+        ]:
+            url = f"{self.serv.api.base_url}{path}"
+            headers = {"Authorization": f"Bearer {self.serv.registration['as_token']}"}
+            try:
+                async with self.serv.az.http_session.get(url, headers=headers) as resp:
+                    if resp.status == 200:
+                        content = await resp.read()
+                        mimetype = resp.headers.get("Content-Type", "application/octet-stream").split(";")[0].strip()
+                        break
+                    logging.debug("Matrix media fetch got %d from %s", resp.status, url)
+            except Exception:
+                logging.debug("Matrix media fetch failed for %s", url, exc_info=True)
+        else:
+            logging.warning("Failed to fetch Matrix media %s", mxc_url)
+            return None
+
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: self.organization.zulip.call_endpoint(
+                    url="user_uploads",
+                    method="POST",
+                    files=[_NamedBytesIO(filename, content)],
+                ),
+            )
+            if result.get("result") == "success":
+                return result["uri"]
+            logging.warning("Zulip upload failed: %s", result.get("msg"))
+        except Exception:
+            logging.warning("Failed to upload Matrix media to Zulip", exc_info=True)
+        return None
+
     async def _process_event_content(
         self,
         event: "MessageEvent",
@@ -116,10 +163,16 @@ class UnderOrganizationRoom(Room):
         content = event.content
 
         if content.msgtype.is_media:
-            media_url = self.serv.mxc_to_url(
-                mxc=event.content.url, filename=event.content.body
+            zulip_uri = await self._upload_matrix_media_to_zulip(
+                event.content.url, content.body, content.info
             )
-            message = f"[{content.body}]({media_url})"
+            if zulip_uri:
+                message = f"[{content.body}]({zulip_uri})"
+            else:
+                media_url = self.serv.mxc_to_url(
+                    mxc=event.content.url, filename=event.content.body
+                )
+                message = f"[{content.body}]({media_url})"
         elif content.formatted_body:
             message = content.formatted_body
 

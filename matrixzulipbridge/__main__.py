@@ -59,6 +59,7 @@ from matrixzulipbridge.personal_room import PersonalRoom
 from matrixzulipbridge.room import Room, RoomInvalidError
 from matrixzulipbridge.space_room import SpaceRoom
 from matrixzulipbridge.stream_room import StreamRoom
+from matrixzulipbridge.media_proxy import MediaProxy, sign_resource
 from matrixzulipbridge.websocket import AppserviceWebsocket
 
 try:  # Optionally load coloredlogs
@@ -96,6 +97,7 @@ class BridgeAppService(AppService):
         self.api = None
         self.synapse_admin = None
         self.endpoint = None
+        self.proxy_url = None
 
     async def push_bridge_state(
         self,
@@ -391,6 +393,11 @@ class BridgeAppService(AppService):
     def mxc_to_url(self, mxc: str, filename: str = None):
         mxc = urllib.parse.urlparse(mxc)
 
+        if self.proxy_url:
+            resource = f"matrix/{mxc.netloc}{mxc.path}"
+            sig = sign_resource(self.registration["as_token"], resource)
+            return f"{self.proxy_url}/media/{resource}?sig={sig}"
+
         if filename is None:
             filename = ""
         else:
@@ -587,6 +594,8 @@ class BridgeAppService(AppService):
         )
         self.az.matrix_event_handler(self._on_mx_event)
 
+        MediaProxy(self).register_routes(self.az.app)
+
         try:
             await self.az.start(host=listen_address, port=listen_port)
         except Exception:
@@ -622,6 +631,7 @@ class BridgeAppService(AppService):
             "member_sync": "half",
             "media_url": None,
             "media_path": None,
+            "proxy_url": None,
             "namespace": self.puppet_prefix,
             "allow": {},
         }
@@ -685,6 +695,17 @@ class BridgeAppService(AppService):
             self.media_path = self.config["media_path"]
         else:
             self.media_path = self.DEFAULT_MEDIA_PATH
+
+        # use configured proxy_url if we have it
+        if (
+            "zulipbridge" in self.registration
+            and "proxy_url" in self.registration["zulipbridge"]
+        ):
+            self.proxy_url = self.registration["zulipbridge"]["proxy_url"]
+            logging.info(f"Media proxy enabled at {self.proxy_url}")
+        elif self.config["proxy_url"]:
+            self.proxy_url = self.config["proxy_url"]
+            logging.info(f"Media proxy enabled at {self.proxy_url}")
 
         logging.info("Starting presence loop")
         self._keepalive()

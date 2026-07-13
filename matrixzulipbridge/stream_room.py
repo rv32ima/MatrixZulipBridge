@@ -540,6 +540,7 @@ class StreamRoom(DirectRoom):
                     for allow in join_rules.allow:
                         if allow.type == JoinRestrictionType.ROOM_MEMBERSHIP:
                             space_id = allow.room_id
+                            logging.info(f"We need to add {user_id} to the space {space_id} before joining the room")
                             try:
                                 await self.az.intent.invite_user(space_id, user_id)
                             except Exception:

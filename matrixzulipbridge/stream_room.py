@@ -530,11 +530,13 @@ class StreamRoom(DirectRoom):
     async def _flush_event(self, event: dict):
         if event["type"] == "_join":
             user_id = event["user_id"]
+            space_join_ok = True
             try:
                 join_rules = await self.az.intent.get_state_event(
                     self.id, EventType.ROOM_JOIN_RULES  # pylint: disable=no-member
                 )
                 if join_rules.join_rule == JoinRule.RESTRICTED:
+                    space_join_ok = False
                     for allow in join_rules.allow:
                         if allow.type == JoinRestrictionType.ROOM_MEMBERSHIP:
                             space_id = allow.room_id
@@ -546,12 +548,16 @@ class StreamRoom(DirectRoom):
                                 await self.az.intent.user(user_id).ensure_joined(
                                     space_id, ignore_cache=True
                                 )
+                                space_join_ok = True
                             except Exception:
                                 logging.warning(
-                                    f"Could not add {user_id} to space {space_id} before joining room"
+                                    f"Could not add {user_id} to space {space_id} before joining room",
+                                    exc_info=True,
                                 )
             except Exception:
                 pass  # room has no join rules or other error
+            if not space_join_ok:
+                return
         await super()._flush_event(event)
 
     def _add_puppet(self, zulip_user: dict):

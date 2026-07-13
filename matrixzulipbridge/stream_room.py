@@ -299,6 +299,9 @@ class StreamRoom(DirectRoom):
         if self.organization.space:
             await self.organization.space.attach(self.id)
 
+    def uses_threads_for_topic(self, topic: str) -> bool:
+        return topic != self.default_topic
+
     @connected
     async def _on_mx_room_topic(self, event: "Event") -> None:
         if event.sender != self.serv.user_id and self.topic_sync in ["zulip", "any"]:

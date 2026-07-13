@@ -116,6 +116,9 @@ class Room(ABC):
     def init(self) -> None:
         pass
 
+    def uses_threads_for_topic(self, topic: str) -> bool:
+        return True
+
     def is_valid(self) -> bool:
         return True
 
@@ -286,6 +289,7 @@ class Room(ABC):
             if (
                 bridge_data.get("type") == "message"
                 and bridge_data.get("target") == "stream"
+                and self.uses_threads_for_topic(bridge_data["zulip_topic"])
             ):
                 thread_id = self.threads.get(bridge_data["zulip_topic"])
                 if thread_id is None:
@@ -307,7 +311,9 @@ class Room(ABC):
             if bridge_data.get("reply_to") is not None:
                 if "m.relates_to" not in event["content"]:
                     event["content"]["m.relates_to"] = {}
-                event["content"]["m.relates_to"]["is_falling_back"] = False
+                # is_falling_back only applies inside a thread
+                if "rel_type" in event["content"]["m.relates_to"]:
+                    event["content"]["m.relates_to"]["is_falling_back"] = False
                 event["content"]["m.relates_to"]["m.in_reply_to"] = {
                     "event_id": bridge_data.get("reply_to")
                 }
@@ -418,7 +424,8 @@ class Room(ABC):
         if "lv.shema.zulipbridge" in event["content"]:
             bridge_data: dict = event["content"]["lv.shema.zulipbridge"]
             if bridge_data["type"] == "message" and bridge_data["target"] == "stream":
-                self._ensure_thread_for_topic(bridge_data.copy(), user_id)
+                if self.uses_threads_for_topic(bridge_data["zulip_topic"]):
+                    self._ensure_thread_for_topic(bridge_data.copy(), user_id)
 
         self._queue.enqueue(event)
 

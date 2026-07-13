@@ -360,6 +360,7 @@ class ZulipEventHandler:
 
         # Collect inline images to upload to Matrix as m.image events, then remove
         # the div from the message body (images are sent as separate events).
+        inline_image_hrefs = set()
         for div in soup.find_all("div", class_="message_inline_image"):
             a_tag = div.find("a")
             if a_tag:
@@ -368,7 +369,21 @@ class ZulipEventHandler:
                     path = href[len("/user_uploads/"):]
                     filename = urllib.parse.unquote(path.split("/")[-1]) or "image"
                     inline_images.append({"path": path, "filename": filename})
+                    inline_image_hrefs.add(href)
             div.decompose()
+
+        # Remove links that correspond to inline images (Zulip renders both a link
+        # in the paragraph text and the message_inline_image div).
+        for a_tag in soup.find_all("a"):
+            if a_tag.get("href") in inline_image_hrefs:
+                a_tag.decompose()
+
+        # Clean up paragraphs that became empty after removing image links.
+        for p in soup.find_all("p"):
+            while p.contents and getattr(p.contents[-1], "name", None) == "br":
+                p.contents[-1].decompose()
+            if not p.get_text(strip=True):
+                p.decompose()
 
         for a_tag in soup.find_all("a"):
             href = a_tag.get("href")

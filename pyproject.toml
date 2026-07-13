@@ -13,7 +13,7 @@ matrix-zulip-bridge = 'matrixzulipbridge.__main__:main'
 python = "^3.10"
 zulip = "^0.9"
 python-dotenv = "^1"
-mautrix = "^0.20"
+mautrix = "^0.21.0"
 emoji = "^2"
 markdownify = ">=0.10,<0.15"
 coloredlogs = "^15"

@@ -164,11 +164,13 @@ class UnderOrganizationRoom(Room):
 
         if content.msgtype.is_media:
             zulip_uri = await self._upload_matrix_media_to_zulip(
-                event.content.url, content.body, content.info
+                event.content.url, getattr(content, "filename", None) or content.body, content.info
             )
             if zulip_uri:
                 message = f"[{content.body}]({zulip_uri})"
             else:
+                # This is a fallback case where we fallback to the media proxy if we
+                # aren't able to upload it to Zulip
                 media_url = self.serv.mxc_to_url(
                     mxc=event.content.url, filename=event.content.body
                 )

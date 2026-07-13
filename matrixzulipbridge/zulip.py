@@ -122,12 +122,13 @@ class ZulipEventHandler:
             "reply_to": reply_event_id,
         }
 
-        room.send_message(
-            message,
-            formatted=formatted_message,
-            user_id=mx_user_id,
-            custom_data=custom_data,
-        )
+        if message.strip():
+            room.send_message(
+                message,
+                formatted=formatted_message,
+                user_id=mx_user_id,
+                custom_data=custom_data,
+            )
 
     async def _send_zulip_image_to_matrix(self, room, img: dict, mx_user_id: str) -> None:
         org = self.organization
@@ -196,12 +197,13 @@ class ZulipEventHandler:
             "reply_to": reply_event_id,
         }
 
-        room.send_message(
-            message,
-            formatted=formatted_message,
-            user_id=mx_user_id,
-            custom_data=custom_data,
-        )
+        if message.strip():
+            room.send_message(
+                message,
+                formatted=formatted_message,
+                user_id=mx_user_id,
+                custom_data=custom_data,
+            )
 
     def _handle_reaction(self, event: dict):
         zulip_message_id = str(event["message_id"])
@@ -397,11 +399,13 @@ class ZulipEventHandler:
 
         # Check if message contains a reply
         first_text = soup.find("p")
-        mentioned_user = first_text.select("span.user-mention.silent")
-        narrow_link = first_text.find("a")
+        if first_text is not None:
+            mentioned_user = first_text.select("span.user-mention.silent")
+            narrow_link = first_text.find("a")
         quote = soup.find("blockquote")
         if (
-            len(mentioned_user) == 1
+            first_text is not None
+            and len(mentioned_user) == 1
             and narrow_link is not None
             and narrow_link.get("href") is not None
             and quote is not None

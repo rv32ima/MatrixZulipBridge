@@ -785,8 +785,11 @@ class BridgeAppService(AppService):
                 logging.error(
                     f"Leaving room with no data: {room_id}. How did this happen?"
                 )
-                self.unregister_room(room_id)
-                await self.leave_room(room_id, joined.keys())
+                logging.error(
+                    "Just kidding. This is probably the space room."
+                )
+                # self.unregister_room(room_id)
+                # await self.leave_room(room_id, joined.keys())
             except Exception:
                 logging.exception(
                     f"Failed to reconfigure room {room_id} during init, leaving."

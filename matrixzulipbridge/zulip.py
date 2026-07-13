@@ -31,8 +31,10 @@ from urllib.parse import urljoin
 from matrixzulipbridge.media_proxy import sign_resource
 
 import emoji
+from aiohttp import BasicAuth
 from bs4 import BeautifulSoup
 from markdownify import markdownify
+from mautrix.types import MediaMessageEventContent, MessageType
 from zulip_emoji_mapping import EmojiNotFoundException, ZulipEmojiMapping
 
 from matrixzulipbridge.direct_room import DirectRoom
@@ -48,6 +50,7 @@ class ZulipEventHandler:
     def __init__(self, organization: "OrganizationRoom") -> None:
         self.organization = organization
         self.messages = set()
+        self.loop = asyncio.get_running_loop()
 
     def on_event(self, event: dict):
         logging.debug(f"Zulip event for {self.organization.name}: {event}")
@@ -82,9 +85,10 @@ class ZulipEventHandler:
         if str(event["id"]) in self.messages:
             return
         self.messages.add(str(event["id"]))
+        asyncio.run_coroutine_threadsafe(self._forward_stream_message(event), self.loop)
 
+    async def _forward_stream_message(self, event: dict):
         room = self._get_room_by_stream_id(event["stream_id"])
-
         if not room:
             logging.debug(
                 f"Received message from stream with no associated Matrix room: {event}"
@@ -96,14 +100,16 @@ class ZulipEventHandler:
             return
 
         topic = event["subject"]
-
         mx_user_id = room.serv.get_mxid_from_zulip_user_id(
             self.organization, event["sender_id"]
         )
 
-        message, formatted_message, reply_event_id = self._process_message_content(
+        message, formatted_message, reply_event_id, inline_images = self._process_message_content(
             event["content"], room
         )
+
+        for img in inline_images:
+            await self._send_zulip_image_to_matrix(room, img, mx_user_id)
 
         custom_data = {
             "zulip_topic": topic,
@@ -122,6 +128,36 @@ class ZulipEventHandler:
             user_id=mx_user_id,
             custom_data=custom_data,
         )
+
+    async def _send_zulip_image_to_matrix(self, room, img: dict, mx_user_id: str) -> None:
+        org = self.organization
+        if not org.email or not org.api_key:
+            return
+        zulip_url = f"{org.site}/user_uploads/{img['path']}"
+        auth = BasicAuth(org.email, org.api_key)
+        try:
+            async with org.serv.az.http_session.get(zulip_url, auth=auth) as resp:
+                if resp.status != 200:
+                    logging.warning("Failed to download Zulip image %s: %d", zulip_url, resp.status)
+                    return
+                data = await resp.read()
+                mime_type = resp.headers.get("Content-Type", "application/octet-stream").split(";")[0].strip()
+        except Exception:
+            logging.warning("Failed to download Zulip image %s", zulip_url, exc_info=True)
+            return
+        try:
+            intent = org.serv.az.intent.user(mx_user_id)
+            mxc = await intent.upload_media(data, mime_type=mime_type, filename=img["filename"])
+            await intent.send_message(
+                room.id,
+                MediaMessageEventContent(
+                    msgtype=MessageType.IMAGE,
+                    body=img["filename"],
+                    url=mxc,
+                ),
+            )
+        except Exception:
+            logging.warning("Failed to send Zulip image to Matrix", exc_info=True)
 
     async def handle_dm_message(self, event: dict):
         if event["sender_id"] == self.organization.profile["user_id"]:
@@ -143,9 +179,12 @@ class ZulipEventHandler:
         if str(event["id"]) in room.messages:
             return
 
-        message, formatted_message, reply_event_id = self._process_message_content(
+        message, formatted_message, reply_event_id, inline_images = self._process_message_content(
             event["content"], room
         )
+
+        for img in inline_images:
+            await self._send_zulip_image_to_matrix(room, img, mx_user_id)
 
         custom_data = {
             "zulip_user_id": event["sender_id"],
@@ -298,6 +337,7 @@ class ZulipEventHandler:
 
     def _process_message_content(self, html: str, room: "DirectRoom"):
         reply_event_id = None
+        inline_images = []
 
         soup = BeautifulSoup(html, "html.parser")
 
@@ -318,23 +358,17 @@ class ZulipEventHandler:
                 return f"{proxy_url}/media/{resource}?sig={sig}"
             return urljoin(self.organization.server["realm_uri"], url)
 
-        # Rewrite inline image divs: proxy the original file href (user_uploads,
-        # works with API key BasicAuth) and use it for the img src too — the
-        # thumbnail endpoint is a web endpoint that only accepts session auth.
+        # Collect inline images to upload to Matrix as m.image events, then remove
+        # the div from the message body (images are sent as separate events).
         for div in soup.find_all("div", class_="message_inline_image"):
             a_tag = div.find("a")
-            img_tag = div.find("img")
-            if img_tag and a_tag:
+            if a_tag:
                 href = a_tag.get("href", "")
-                proxied = _rewrite_url(href)
-                a_tag["href"] = proxied
-                img_tag["src"] = proxied
-                div.replace_with(a_tag)
-            elif img_tag:
-                img_tag["src"] = _rewrite_url(img_tag.get("src", ""))
-                div.replace_with(img_tag)
-            else:
-                div.decompose()
+                if href.startswith("/user_uploads/"):
+                    path = href[len("/user_uploads/"):]
+                    filename = urllib.parse.unquote(path.split("/")[-1]) or "image"
+                    inline_images.append({"path": path, "filename": filename})
+            div.decompose()
 
         for a_tag in soup.find_all("a"):
             href = a_tag.get("href")
@@ -404,5 +438,5 @@ class ZulipEventHandler:
                 first_text.replace_with(mx_reply)
 
         formatted_message = emoji.emojize(soup.decode(), language="alias")
-        message = markdownify(formatted_message, strip=["img"]).rstrip()
-        return message, formatted_message, reply_event_id
+        message = markdownify(formatted_message).rstrip()
+        return message, formatted_message, reply_event_id, inline_images

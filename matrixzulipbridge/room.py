@@ -152,6 +152,23 @@ class Room(ABC):
     def in_room(self, user_id):
         return user_id in self.members
 
+    async def _populate_displaynames(self) -> None:
+        joined = await self.az.state_store.get_member_profiles(
+            self.id, (Membership.JOIN,)
+        )
+
+        for user_id, member in joined.items():
+            if member.displayname is not None:
+                self.displaynames[user_id] = member.displayname
+
+    async def _get_displayname(self, mxid: "UserID") -> str:
+        if mxid not in self.displaynames:
+            await self._populate_displaynames()
+        if mxid in self.displaynames:
+            return self.displaynames[mxid][:100]
+        return mxid
+
+        
     async def on_mx_ban(self, user_id: "UserID") -> None:
         pass
 

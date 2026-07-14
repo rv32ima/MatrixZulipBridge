@@ -211,7 +211,7 @@ class UnderOrganizationRoom(Room):
 
         if reply_to is not None:
             try:
-                author = self._get_displayname(reply_to.sender)
+                author = await self._get_displayname(reply_to.sender)
                 quoted_content = reply_to.content
                 # Strip any reply fallback the quoted message may itself contain
                 if hasattr(quoted_content, "trim_reply_fallback"):
@@ -228,13 +228,6 @@ class UnderOrganizationRoom(Room):
 
         message = prefix + message
         return message
-
-    def _get_displayname(self, mxid: "UserID"):
-        if mxid in self.displaynames:
-            sender_displayname = self.displaynames[mxid][:100]
-            return sender_displayname
-        # Fallback to mxid
-        return mxid
 
     def _construct_zulip_narrow_url(self, topic=None, message_id=None):
         zulip_uri = urlparse(self.organization.zulip.base_url)

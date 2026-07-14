@@ -200,36 +200,6 @@ class UnderOrganizationRoom(Room):
 
                 link.replace_with(zulip_mention)
 
-            if reply_to is not None:
-                # Attempt to parse reply, it's alright if this fails
-                try:
-                    reply_block = soup.find("mx-reply")
-                    if reply_block is not None:
-                        links = reply_block.find_all("a")
-                        if type(self).__name__ in (
-                            "DirectRoom",
-                            "StreamRoom",
-                        ):
-                            # Replace reply event link with Zulip link
-                            in_reply_to_link = links[0]
-                            narrow = self._construct_zulip_narrow_url(
-                                topic=topic,
-                                message_id=self.messages.inv.get(reply_to.event_id),
-                            )
-                            in_reply_to_link["href"] = narrow
-
-                        # Replace mxid with display name (non-puppet users)
-                        if len(links) > 1:
-                            author_link = links[1]
-                            author_mxid = author_link["href"].split(
-                                "https://matrix.to/#/"
-                            )[1]
-                            author_link.string.replace_with(
-                                self._get_displayname(author_mxid)
-                            )
-                except Exception:  # pylint: disable=broad-exception-caught
-                    pass
-
             message = soup.encode(formatter="html5")
 
             message = markdownify(message)
@@ -238,6 +208,24 @@ class UnderOrganizationRoom(Room):
         else:
             logging.warning("_process_event_content called with no usable body")
             return
+
+        if reply_to is not None:
+            try:
+                author = self._get_displayname(reply_to.sender)
+                quoted_content = reply_to.content
+                # Strip any reply fallback the quoted message may itself contain
+                if hasattr(quoted_content, "trim_reply_fallback"):
+                    quoted_content.trim_reply_fallback()
+                quoted_body = getattr(quoted_content, "body", "") or ""
+                message_id = self.messages.inv.get(reply_to.event_id)
+                narrow = self._construct_zulip_narrow_url(
+                    topic=topic, message_id=message_id
+                )
+                quote = f"**{author}** [said]({narrow}):\n```quote\n{quoted_body}\n```\n"
+                message = quote + message
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
+
         message = prefix + message
         return message
 

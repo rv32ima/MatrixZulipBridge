@@ -281,6 +281,9 @@ class DirectRoom(UnderOrganizationRoom):
         event_id = event.redacts
 
         client = self.organization.zulip_puppets.get(event.sender)
+        if not client:
+            logging.error(f"Missing Zulip puppet for {event.sender}, falling back to organization zulip")
+            client = self.organization.zulip
 
         if event_id in self.messages.inverse:
             zulip_message_id = self.messages.inverse[event_id]
@@ -300,6 +303,7 @@ class DirectRoom(UnderOrganizationRoom):
             frozen_request = frozenset(request.items())
             del self.reactions.inverse[frozen_request]
         else:
+            logging.error(f"Got a redaction from Matrix for a Zulip message that we have no idea of")
             return
 
         if result["result"] != "success":
@@ -310,6 +314,7 @@ class DirectRoom(UnderOrganizationRoom):
         client = self.organization.zulip_puppets.get(event.sender)
         # This only works for logged in users
         if not client:
+            logging.info(f"Got a reaction for a message that we don't have a puppet for")
             return
         if event.content.relates_to.rel_type.value != "m.annotation":
             return

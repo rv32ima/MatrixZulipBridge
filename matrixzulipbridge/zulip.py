@@ -260,14 +260,22 @@ class ZulipEventHandler:
             del room.reactions[event_id]
 
     def _handle_delete_message(self, event: dict):
-        room = self._get_room_by_stream_id(event["stream_id"])
+        message_id = str(event["message_id"])
 
-        message_mxid = self._get_mxid_from_zulip_id(event["message_id"], room)
+        if event.get("message_type") == "stream":
+            room = self._get_room_by_stream_id(event["stream_id"])
+        else:
+            room = self._get_room_by_message_id(message_id)
+
+        if not room:
+            return
+
+        message_mxid = room.messages.get(message_id)
         if not message_mxid:
             return
 
         room.redact(message_mxid, reason="Deleted on Zulip")
-        del room.messages[str(event["message_id"])]
+        del room.messages[message_id]
 
     def _handle_subscription(self, event: dict):
         if not "stream_ids" in event:

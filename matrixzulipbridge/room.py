@@ -271,7 +271,8 @@ class Room(ABC):
                 zulip_user=event["zulip_user"],
             )
         elif event["type"] == "_redact":
-            await self.az.intent.redact(
+            msg = await self.az.intent.get_event(self.id, event["event_id"])
+            await self.az.intent.user(msg["user_id"]).redact(
                 room_id=self.id,
                 event_id=event["event_id"],
                 reason=event["reason"],

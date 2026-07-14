@@ -324,7 +324,7 @@ class StreamRoom(DirectRoom):
         ):
             return
 
-        sender = f"[{self._get_displayname(sender)}](https://matrix.to/#/{sender})"
+        sender = f"[{await self._get_displayname(sender)}](https://matrix.to/#/{sender})"
 
         if event.content.msgtype.is_media or event.content.msgtype in (
             MessageType.EMOTE,

@@ -108,8 +108,9 @@ class ZulipEventHandler:
             event["content"], room
         )
 
+        last_image_event_id = None
         for img in inline_images:
-            await self._send_zulip_image_to_matrix(room, img, mx_user_id)
+            last_image_event_id = await self._send_zulip_image_to_matrix(room, img, mx_user_id)
 
         custom_data = {
             "zulip_topic": topic,
@@ -129,27 +130,31 @@ class ZulipEventHandler:
                 user_id=mx_user_id,
                 custom_data=custom_data,
             )
+        elif last_image_event_id is not None:
+            # Image-only message: track the Zulip message ID so it isn't resent on restart
+            room.messages[str(event["id"])] = last_image_event_id
+            await room.save()
 
-    async def _send_zulip_image_to_matrix(self, room, img: dict, mx_user_id: str) -> None:
+    async def _send_zulip_image_to_matrix(self, room, img: dict, mx_user_id: str) -> Optional[str]:
         org = self.organization
         if not org.email or not org.api_key:
-            return
+            return None
         zulip_url = f"{org.site}/user_uploads/{img['path']}"
         auth = BasicAuth(org.email, org.api_key)
         try:
             async with org.serv.az.http_session.get(zulip_url, auth=auth) as resp:
                 if resp.status != 200:
                     logging.warning("Failed to download Zulip image %s: %d", zulip_url, resp.status)
-                    return
+                    return None
                 data = await resp.read()
                 mime_type = resp.headers.get("Content-Type", "application/octet-stream").split(";")[0].strip()
         except Exception:
             logging.warning("Failed to download Zulip image %s", zulip_url, exc_info=True)
-            return
+            return None
         try:
             intent = org.serv.az.intent.user(mx_user_id)
             mxc = await intent.upload_media(data, mime_type=mime_type, filename=img["filename"])
-            await intent.send_message(
+            return await intent.send_message(
                 room.id,
                 MediaMessageEventContent(
                     msgtype=MessageType.IMAGE,
@@ -159,6 +164,7 @@ class ZulipEventHandler:
             )
         except Exception:
             logging.warning("Failed to send Zulip image to Matrix", exc_info=True)
+            return None
 
     async def handle_dm_message(self, event: dict):
         if event["sender_id"] == self.organization.profile["user_id"]:
@@ -184,8 +190,9 @@ class ZulipEventHandler:
             event["content"], room
         )
 
+        last_image_event_id = None
         for img in inline_images:
-            await self._send_zulip_image_to_matrix(room, img, mx_user_id)
+            last_image_event_id = await self._send_zulip_image_to_matrix(room, img, mx_user_id)
 
         custom_data = {
             "zulip_user_id": event["sender_id"],
@@ -204,6 +211,10 @@ class ZulipEventHandler:
                 user_id=mx_user_id,
                 custom_data=custom_data,
             )
+        elif last_image_event_id is not None:
+            # Image-only message: track the Zulip message ID so it isn't resent on restart
+            room.messages[str(event["id"])] = last_image_event_id
+            await room.save()
 
     def _handle_reaction(self, event: dict):
         zulip_message_id = str(event["message_id"])

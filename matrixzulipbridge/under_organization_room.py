@@ -24,6 +24,7 @@
 import asyncio
 import logging
 import urllib.parse
+import mimetypes
 from typing import TYPE_CHECKING, Optional
 from urllib.parse import quote, urlparse
 
@@ -107,15 +108,17 @@ class UnderOrganizationRoom(Room):
         if self.organization.space:
             await self.organization.space.attach(self.id)
 
-    async def _upload_matrix_media_to_zulip(self, mxc_url: str, filename: str, info) -> str | None:
+    async def _upload_matrix_media_to_zulip(self, uploader: str, mxc_url: str, filename: str, info) -> str | None:
         import io
 
         class _NamedBytesIO(io.BytesIO):
             def __init__(self, name: str, data: bytes) -> None:
                 super().__init__(data)
                 self.name = name
-
-        if not self.organization.zulip:
+        zulip_client = self.organization.zulip
+        if uploader in self.organization.zulip_puppets:
+            zulip_client = self.organization.zulip_puppets[uploader]
+        if not zulip_client:
             return None
         mxc = urllib.parse.urlparse(mxc_url)
         for path in [
@@ -140,14 +143,14 @@ class UnderOrganizationRoom(Room):
         try:
             result = await asyncio.get_running_loop().run_in_executor(
                 None,
-                lambda: self.organization.zulip.call_endpoint(
+                lambda: zulip_client.call_endpoint(
                     url="user_uploads",
                     method="POST",
                     files=[_NamedBytesIO(filename, content)],
                 ),
             )
             if result.get("result") == "success":
-                return result["uri"]
+                return result["url"]
             logging.warning("Zulip upload failed: %s", result.get("msg"))
         except Exception:
             logging.warning("Failed to upload Matrix media to Zulip", exc_info=True)
@@ -162,19 +165,31 @@ class UnderOrganizationRoom(Room):
     ):
         content = event.content
 
+        logging.info(f"Got event {event}")
         if content.msgtype.is_media:
+            mt = mimetypes.MimeTypes()
+            (_, type_map) = mt.types_map_inv
+            extension = ".png"
+            if content.info.mimetype in type_map:
+                extension = type_map[content.info.mimetype][0]
+            filename = getattr(content, "filename", f"image{extension}") 
+            logging.info(f"Uploading image with filename {filename} to Zulip...")
             zulip_uri = await self._upload_matrix_media_to_zulip(
-                event.content.url, getattr(content, "filename", None) or content.body, content.info
+                event.sender, event.content.url, filename, content.info
             )
+            logging.info(f"Got Zulip URI {zulip_uri}")
             if zulip_uri:
-                message = f"[{content.body}]({zulip_uri})"
+                message = f"[{filename}]({zulip_uri})"
             else:
                 # This is a fallback case where we fallback to the media proxy if we
                 # aren't able to upload it to Zulip
                 media_url = self.serv.mxc_to_url(
                     mxc=event.content.url, filename=event.content.body
                 )
-                message = f"[{content.body}]({media_url})"
+                message = f"[{filename}]({media_url})"
+            if content.body != filename:
+                # We can just omit the body, because it's just an image only
+                message += f"\n{content.body}"
         elif content.formatted_body:
             message = content.formatted_body
 
